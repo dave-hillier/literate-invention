@@ -1,0 +1,737 @@
+openapi: 3.0.0
+info:
+  title: Minicabit Partner API
+  description: |
+    # Minicabit Partner API Documentation
+    
+    This API allows partners to integrate with Minicabit's booking platform to search for quotes and create bookings.
+    
+    ## Authentication
+    
+    All API requests require authentication via an API key sent in the `X-Minicabit-ApiKey-ID` header.
+    
+    ## Base URL
+    
+    The base URL for all API endpoints is: `https://api.minicabit.com/v1/`
+  version: "1.0.0"
+  contact:
+    name: Minicabit API Support
+    url: https://api.minicabit.com/v1/partner-docs/
+servers:
+  - url: https://api.minicabit.com/v1
+    description: Production server
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /quotes:
+    get:
+      summary: Get quotes for a trip
+      description: |
+        This endpoint allows you to search for taxi quotes between two locations.
+        
+        ## Trip Types
+        - **Single**: One-way trip
+        - **Return**: Round trip with return time
+        - **Split**: Separate outbound and inbound bookings
+        
+        ## Parameters
+        - All address parameters should include full address with postcode
+        - Dates should be in YYYY-MM-DD format
+        - Times should be in HH:MM format (24-hour)
+      tags:
+        - Quotes and address search
+      parameters:
+        - name: fromProperty
+          in: query
+          description: Full address with postcode (e.g., "Elgin Rail Station (IV30 1QP)")
+          required: true
+          schema:
+            type: string
+            example: "Elgin Rail Station (IV30 1QP)"
+        - name: toProperty
+          in: query
+          description: Full address with postcode (e.g., "Dr Grays Hospital - Elgin(IV30 1SN)")
+          required: true
+          schema:
+            type: string
+            example: "Dr Grays Hospital - Elgin(IV30 1SN)"
+        - name: pickUpDate
+          in: query
+          description: Pick up date in YYYY-MM-DD format
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2016-10-05"
+        - name: pickUpTime
+          in: query
+          description: Pick up time in HH:MM format (24-hour)
+          required: true
+          schema:
+            type: string
+            example: "17:30"
+        - name: numOfPassengers
+          in: query
+          description: Number of passengers
+          required: true
+          schema:
+            type: integer
+            example: 1
+        - name: tripType
+          in: query
+          description: Type of trip
+          required: true
+          schema:
+            type: string
+            enum: [Single, Return, Split]
+            example: "Single"
+        - name: returnDate
+          in: query
+          description: Return date (required for Return and Split trips)
+          required: false
+          schema:
+            type: string
+            format: date
+            example: "2016-10-05"
+        - name: returnTime
+          in: query
+          description: Return time (required for Return and Split trips)
+          required: false
+          schema:
+            type: string
+            example: "19:30"
+        - name: luggage
+          in: query
+          description: Luggage information as JSON string
+          required: false
+          schema:
+            type: string
+            example: "{}"
+        - name: vias
+          in: query
+          description: Array of via addresses as JSON string
+          required: false
+          schema:
+            type: string
+            example: "[]"
+      responses:
+        '200':
+          description: Successful response with quotes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  outboundQuotes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quote'
+                  returnQuotes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quote'
+                  searchLogId:
+                    type: object
+                    properties:
+                      outbound:
+                        type: integer
+                      inbound:
+                        type: integer
+                  exposedQuotes:
+                    type: object
+                    properties:
+                      outbound:
+                        $ref: '#/components/schemas/ExposedQuotes'
+                      inbound:
+                        $ref: '#/components/schemas/ExposedQuotes'
+                  redirectInfo:
+                    type: object
+                    properties:
+                      hash:
+                        type: string
+                      url:
+                        type: string
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /quotes/checkRoute:
+    get:
+      summary: Check for cheaper route options
+      description: Checks for cheaper route options for routes with vias
+      tags:
+        - Quotes and address search
+      parameters:
+        - name: fromProperty
+          in: query
+          description: Full address with postcode
+          required: true
+          schema:
+            type: string
+        - name: toProperty
+          in: query
+          description: Full address with postcode
+          required: true
+          schema:
+            type: string
+        - name: vias
+          in: query
+          description: Array of via address objects with no, property, postCode, latitude, longitude
+          required: true
+          schema:
+            type: string
+            example: '[{"no":"1","property":"Elgin Dr Gray''s","postCode":"AB10 7QA","latitude":"57.1246815","longitude":"-2.1235574"},{"no":"2","property":"Elgin Rail","postCode":"WV8 2EH","latitude":"52.62685600000","longitude":"-2.20109600000"}]'
+      responses:
+        '200':
+          description: Route comparison response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  originalRoute:
+                    $ref: '#/components/schemas/Route'
+                  cheaperRoute:
+                    $ref: '#/components/schemas/Route'
+
+  /bookings/:
+    post:
+      summary: Create a booking
+      description: |
+        This endpoint allows you to create a booking in Minicabit's system.
+        
+        ## Booking Types
+        - **single**: Regular trip from one destination to another
+        - **return**: Round trip with return time and date
+        - **split**: Separate outbound and inbound bookings for larger time gaps
+        
+        ## Car Types
+        Only the following car types are supported:
+        - (4-seater)
+        - (-4-seater)  
+        - (6-seater)
+        - (7-seater)
+        - (8-seater)
+        - (9-seater)
+        - (14-seater)
+        
+        ## Price Types
+        - **PMP**: Pre-agreed pricing
+        - **LP**: List pricing
+        - **PAP**: Partner agreed pricing
+      tags:
+        - Bookings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BookingRequest'
+      responses:
+        '200':
+          description: Successfully created booking
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BookingResponse'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '402':
+          description: Declined booking
+        '500':
+          description: Validation error
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Minicabit-ApiKey-ID
+      description: API key for authentication
+
+  schemas:
+    Quote:
+      type: object
+      properties:
+        phoId:
+          type: string
+          description: Partner/operator ID
+        rating:
+          type: integer
+          description: Rating of the operator
+        locationIsBase:
+          type: string
+          description: Base location of the operator
+        fleetLabel:
+          type: string
+          description: Fleet type label
+        filters:
+          type: array
+          items:
+            type: integer
+          description: Applied filters
+        discount:
+          type: string
+          nullable: true
+          description: Applied discount
+        starRating:
+          type: number
+          description: Star rating out of 5
+        numberOfRatings:
+          type: integer
+          description: Number of ratings
+        carType:
+          type: object
+          properties:
+            seatNo:
+              type: string
+            category:
+              type: string
+        currency:
+          type: string
+          description: Currency code (e.g., GBP)
+        finalPrice:
+          type: number
+          description: Final price for the trip
+        paymentsTypeAccepted:
+          type: string
+          description: Accepted payment types
+        priceType:
+          type: string
+          enum: [PMP, LP, PAP]
+          description: Type of pricing
+        name:
+          type: string
+          description: Operator name
+        milesToPho:
+          type: number
+          description: Miles to pickup location
+        qvr:
+          type: number
+          description: Quality value rating
+
+    ExposedQuotes:
+      type: object
+      properties:
+        bestRated:
+          $ref: '#/components/schemas/Quote'
+        cheapest:
+          $ref: '#/components/schemas/Quote'
+        cheapestNearby:
+          $ref: '#/components/schemas/Quote'
+        cheapestExecutive:
+          $ref: '#/components/schemas/Quote'
+
+    Route:
+      type: object
+      properties:
+        vias:
+          type: array
+          items:
+            type: object
+            properties:
+              no:
+                type: string
+              property:
+                type: string
+              postCode:
+                type: string
+              latitude:
+                type: string
+              longitude:
+                type: string
+        duration:
+          type: integer
+          description: Duration in seconds
+        distance:
+          type: number
+          description: Distance in miles
+
+    BookingRequest:
+      type: object
+      required:
+        - tripInfo
+        - riderDetails
+        - quotes
+      properties:
+        tripInfo:
+          $ref: '#/components/schemas/TripInfo'
+        riderDetails:
+          $ref: '#/components/schemas/RiderDetails'
+        quotes:
+          $ref: '#/components/schemas/BookingQuotes'
+        userAgent:
+          type: string
+        searchLogId:
+          type: object
+          properties:
+            outbound:
+              type: integer
+        orderId:
+          type: string
+        landingUrl:
+          type: string
+
+    TripInfo:
+      type: object
+      properties:
+        pickUpDate:
+          type: string
+          format: date
+        pickUpTime:
+          type: string
+        numOfPassengers:
+          type: string
+        tripType:
+          type: string
+          enum: [Single, Return, Split]
+        luggage:
+          type: string
+        journeyDurationMin:
+          type: number
+        vias:
+          type: array
+          items:
+            type: string
+        returnDate:
+          type: string
+          format: date
+        returnTime:
+          type: string
+        from:
+          $ref: '#/components/schemas/LocationInfo'
+        to:
+          $ref: '#/components/schemas/LocationInfo'
+
+    LocationInfo:
+      type: object
+      properties:
+        fromProperty:
+          type: string
+        fromPostCode:
+          type: string
+        fromStreet:
+          type: string
+        fromTown:
+          type: string
+        fromCounty:
+          type: string
+        fromCatId:
+          type: string
+        toProperty:
+          type: string
+        toPostCode:
+          type: string
+        toStreet:
+          type: string
+        toTown:
+          type: string
+        toCounty:
+          type: string
+        toCatId:
+          type: string
+        latitude:
+          type: number
+        longitude:
+          type: number
+
+    RiderDetails:
+      type: object
+      properties:
+        id:
+          type: number
+        customerRegAccountId:
+          type: number
+        passengerTitle:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        email:
+          type: string
+          format: email
+        mobileNum:
+          type: string
+        receiveSms:
+          type: integer
+        receiveNewsletters:
+          type: integer
+        team:
+          type: string
+        payments:
+          $ref: '#/components/schemas/PaymentDetails'
+        title:
+          type: string
+        comments:
+          type: string
+        additionalInfo:
+          type: string
+        flightInfo:
+          type: string
+        acceptedTAndCs:
+          type: integer
+        reasonForTravel:
+          type: string
+        phoneNumber:
+          type: string
+        isChauffeurit:
+          type: string
+        signUpNewsletter:
+          type: integer
+
+    PaymentDetails:
+      type: object
+      properties:
+        billingAddress:
+          $ref: '#/components/schemas/BillingAddress'
+        bin:
+          type: string
+        cardType:
+          type: string
+        cardholderName:
+          type: string
+        debit:
+          type: string
+        default:
+          type: string
+        expirationMonth:
+          type: string
+        expirationYear:
+          type: string
+        expired:
+          type: string
+        imageUrl:
+          type: string
+        last4:
+          type: string
+        token:
+          type: string
+        maskedNumber:
+          type: string
+        type:
+          type: string
+        isCreditCard:
+          type: number
+        isPingit:
+          type: string
+        isPaypal:
+          type: string
+        deviceData:
+          type: string
+        paymentTransactionType:
+          type: string
+        details:
+          type: object
+          properties:
+            nonceValue:
+              type: string
+            provider:
+              type: string
+
+    BillingAddress:
+      type: object
+      properties:
+        id:
+          type: string
+        customerId:
+          type: string
+        firstName:
+          type: string
+        lastName:
+          type: string
+        company:
+          type: string
+        streetAddress:
+          type: string
+        extendedAddress:
+          type: string
+        locality:
+          type: string
+        region:
+          type: string
+        postalCode:
+          type: string
+        countryCodeAlpha2:
+          type: string
+        countryCodeAlpha3:
+          type: string
+        countryCodeNumeric:
+          type: string
+        countryName:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    BookingQuotes:
+      type: object
+      properties:
+        outbound:
+          type: object
+          properties:
+            phoId:
+              type: string
+            rating:
+              type: number
+            locationIsBase:
+              type: string
+            fleetLabel:
+              type: string
+            filters:
+              type: array
+              items:
+                type: string
+            discount:
+              type: string
+            starRating:
+              type: number
+            numberOfRatings:
+              type: string
+            carType:
+              type: string
+            currency:
+              type: string
+            finalPrice:
+              type: number
+            paymentsTypeAccepted:
+              type: string
+            priceType:
+              type: string
+            name:
+              type: string
+            milesToPho:
+              type: number
+            originalPrice:
+              type: number
+        quoteId:
+          type: string
+        finalPrice:
+          type: string
+        promocode:
+          type: string
+
+    BookingResponse:
+      type: object
+      properties:
+        id:
+          type: integer
+        bookingRef:
+          type: string
+        bookingDate:
+          type: string
+          format: date-time
+        pickup:
+          type: string
+          format: date-time
+        from:
+          type: string
+        fromPostcode:
+          type: string
+        to:
+          type: string
+        toPostcode:
+          type: string
+        tripReason:
+          type: string
+        paymentType:
+          type: string
+        price:
+          type: number
+        totalVat:
+          type: number
+        date:
+          type: string
+          format: date-time
+        grossAmount:
+          type: number
+        bookingType:
+          type: string
+        bookingStatus:
+          type: string
+        cancellationDate:
+          type: string
+          format: date-time
+          nullable: true
+        latestEarlyCancellationTime:
+          type: string
+          format: date-time
+        latestCancellationTime:
+          type: string
+          format: date-time
+        returnEta:
+          type: string
+          format: date-time
+          nullable: true
+        bookingFees:
+          type: number
+        ccCharges:
+          type: number
+        tripCharges:
+          type: number
+        transactionId:
+          type: string
+        cabOperator:
+          type: object
+          properties:
+            name:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+            rating:
+              type: number
+            fleetLabel:
+              type: string
+        tripDetails:
+          type: object
+          properties:
+            noOfPassengers:
+              type: integer
+            carType:
+              type: string
+            additionalInfo:
+              type: string
+            flightInfo:
+              type: string
+            luggage:
+              type: object
+        passengerDetails:
+          type: object
+          properties:
+            title:
+              type: string
+            firstName:
+              type: string
+            lastName:
+              type: string
+            phone:
+              type: string
+            email:
+              type: string
+        poiAttributes:
+          type: object
+          description: Point of interest attributes for special locations
+
+  responses:
+    UnauthorizedError:
+      description: Access token is missing or invalid
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              error:
+                type: string
+                example: "Access token is missing or invalid"
+
+tags:
+  - name: Quotes and address search
+    description: Operations for searching quotes and addresses
+  - name: Bookings
+    description: Operations for creating and managing bookings 
